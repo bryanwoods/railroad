@@ -11,7 +11,7 @@ class ModelsDiagram < AppDiagram
 
   def initialize(options)
     #options.exclude.map! {|e| "app/models/" + e}
-    super options 
+    super options
     @graph.diagram_type = 'Models'
     # Processed habtm associations
     @habtm = []
@@ -21,12 +21,17 @@ class ModelsDiagram < AppDiagram
   def generate
     STDERR.print "Generating models diagram\n" if @options.verbose
     files = Dir.glob("app/models/**/*.rb")
-    files += Dir.glob("vendor/plugins/**/app/models/*.rb") if @options.plugins_models    
+    files += Dir.glob("vendor/plugins/**/app/models/*.rb") if @options.plugins_models
     files -= @options.exclude
-    files.each do |f| 
-      process_class extract_class_name(f).constantize
+    files.each do |f|
+      klass = extract_class_name(f).constantize
+      begin
+        process_class klass
+      rescue LoadError
+        STDERR.print "WARNING: There was a problem loading #{klass}, so it was skipped!\n"
+      end
     end
-  end 
+  end
 
   private
 
@@ -52,7 +57,7 @@ class ModelsDiagram < AppDiagram
     STDERR.print "\tProcessing #{current_class}\n" if @options.verbose
 
     generated = false
-        
+
     # Is current_clas derived from ActiveRecord::Base?
     if current_class.respond_to?'reflect_on_all_associations'
 
@@ -60,27 +65,31 @@ class ModelsDiagram < AppDiagram
       node_attribs = []
       if @options.brief || current_class.abstract_class?
         node_type = 'model-brief'
-      else 
+      else
         node_type = 'model'
 
         # Collect model's content columns
+        begin
+          content_columns = current_class.content_columns
+        rescue # probably a table not corresponding to this class
+          STDERR.print "WARNING: #{current_class} does not seem to correspond to an accessible DB table, so it was skipped!\n"
+          return
+        end
 
-	content_columns = current_class.content_columns
-	
-	if @options.hide_magic 
+        if @options.hide_magic
           # From patch #13351
           # http://wiki.rubyonrails.org/rails/pages/MagicFieldNames
           magic_fields = [
-          "created_at", "created_on", "updated_at", "updated_on",
-          "lock_version", "type", "id", "position", "parent_id", "lft", 
-          "rgt", "quote", "template"
+            "created_at", "created_on", "updated_at", "updated_on",
+            "lock_version", "type", "id", "position", "parent_id", "lft",
+            "rgt", "quote", "template"
           ]
-          magic_fields << current_class.table_name + "_count" if current_class.respond_to? 'table_name' 
+          magic_fields << current_class.table_name + "_count" if current_class.respond_to? 'table_name'
           content_columns = current_class.content_columns.select {|c| ! magic_fields.include? c.name}
         else
           content_columns = current_class.content_columns
         end
-        
+
         content_columns.each do |a|
           content_column = a.name
           content_column += ' :' + a.type.to_s unless @options.hide_types
@@ -93,8 +102,8 @@ class ModelsDiagram < AppDiagram
       associations = current_class.reflect_on_all_associations
       if @options.inheritance && ! @options.transitive
         superclass_associations = current_class.superclass.reflect_on_all_associations
-        
-        associations = associations.select{|a| ! superclass_associations.include? a} 
+
+        associations = associations.select{|a| ! superclass_associations.include? a}
         # This doesn't works!
         # associations -= current_class.superclass.reflect_on_all_associations
       end
@@ -107,15 +116,15 @@ class ModelsDiagram < AppDiagram
       @graph.add_node [node_type, current_class.name]
       generated = true
     elsif @options.modules && (current_class.is_a? Module)
-        @graph.add_node ['module', current_class.name]
+      @graph.add_node ['module', current_class.name]
     end
 
     # Only consider meaningful inheritance relations for generated classes
-    if @options.inheritance && generated && 
-       (current_class.superclass != ActiveRecord::Base) &&
-       (current_class.superclass != Object)
+    if @options.inheritance && generated &&
+      (current_class.superclass != ActiveRecord::Base) &&
+      (current_class.superclass != Object)
       @graph.add_edge ['is-a', current_class.superclass.name, current_class.name]
-    end      
+    end
 
   end # process_class
 
@@ -128,17 +137,17 @@ class ModelsDiagram < AppDiagram
     return if assoc.macro.to_s == 'belongs_to'
 
     # Only non standard association names needs a label
-    
+
     # from patch #12384
     # if assoc.class_name == assoc.name.to_s.singularize.camelize
-    assoc_class_name = (assoc.class_name.respond_to? 'underscore') ? assoc.class_name.underscore.singularize.camelize : assoc.class_name 
+    assoc_class_name = (assoc.class_name.respond_to? 'underscore') ? assoc.class_name.underscore.singularize.camelize : assoc.class_name
     if assoc_class_name == assoc.name.to_s.singularize.camelize
       assoc_name = ''
     else
       assoc_name = assoc.name.to_s
-    end 
+    end
 
-    if assoc.macro.to_s == 'has_one' 
+    if assoc.macro.to_s == 'has_one'
       assoc_type = 'one-one'
     elsif assoc.macro.to_s == 'has_many' && (! assoc.options[:through])
       assoc_type = 'one-many'
@@ -146,10 +155,10 @@ class ModelsDiagram < AppDiagram
       return if @habtm.include? [assoc.class_name, class_name, assoc_name]
       assoc_type = 'many-many'
       @habtm << [class_name, assoc.class_name, assoc_name]
-    end  
-    # from patch #12384    
+    end
+    # from patch #12384
     # @graph.add_edge [assoc_type, class_name, assoc.class_name, assoc_name]
-    @graph.add_edge [assoc_type, class_name, assoc_class_name, assoc_name]    
+    @graph.add_edge [assoc_type, class_name, assoc_class_name, assoc_name]
   end # process_association
 
 end # class ModelsDiagram
