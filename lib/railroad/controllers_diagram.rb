@@ -36,7 +36,7 @@ class ControllersDiagram < AppDiagram
     begin
       disable_stdout
       # ApplicationController must be loaded first
-      require "app/controllers/application.rb" 
+      require "app/controllers/application_controller.rb"
       files = Dir.glob("app/controllers/**/*_controller.rb") - @options.exclude
       files.each {|c| require c }
       enable_stdout
