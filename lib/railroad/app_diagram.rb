@@ -32,13 +32,13 @@ class AppDiagram
         exit 2
       end
     end
-    
-    if @options.xmi 
+
+    if @options.xmi
         STDERR.print "Generating XMI diagram\n" if @options.verbose
-    	STDOUT.print @graph.to_xmi
+        STDOUT.print @graph.to_xmi
     else
         STDERR.print "Generating DOT graph\n" if @options.verbose
-        STDOUT.print @graph.to_dot 
+        STDOUT.print @graph.to_dot
     end
 
     if @options.output
@@ -46,7 +46,7 @@ class AppDiagram
     end
   end # print
 
-  private 
+  private
 
   # Prevents Rails application from writing to STDOUT
   def disable_stdout
@@ -54,7 +54,7 @@ class AppDiagram
     STDOUT.reopen(RUBY_PLATFORM =~ /mswin/ ? "NUL" : "/dev/null")
   end
 
-  # Restore STDOUT  
+  # Restore STDOUT
   def enable_stdout
     STDOUT.reopen(@old_stdout)
   end
@@ -63,7 +63,7 @@ class AppDiagram
   # Print error when loading Rails application
   def print_error(type)
     STDERR.print "Error loading #{type}.\n  (Are you running " +
-                 "#{APP_NAME} on the aplication's root directory?)\n\n"
+                 "#{APP_NAME} on the application's root directory?)\n\n"
   end
 
   # Load Rails application's environment
@@ -84,7 +84,29 @@ class AppDiagram
   def extract_class_name(filename)
     #filename.split('/')[2..-1].join('/').split('.').first.camelize
     # Fixed by patch from ticket #12742
-    File.basename(filename).chomp(".rb").camelize
+    path = File.dirname(filename)
+    base_file_class = File.basename(filename, ".rb").camelize
+    if path == '.'
+      base_file_class
+    else
+      rails_root = /#{Dir.pwd}/
+      rails_structure = /\/?app\/(models|controllers|observers|services|views|helpers)\/?/
+      namespaced_class_path = path.gsub(rails_root,'').gsub(rails_structure,'')
+      # This will convert something like /Users/you/Sites/railsapp/app/models/api/modelname.rb to Api::Modelname
+      # In SOME cases the namespacing/directory hierarchy does not match up which is why this is a little narsty
+      # In that case we just fall back on the File.basename and cross our fingers :)
+      unless namespaced_class_path.strip.blank?
+        namespaced_class = ([namespaced_class_path, File.basename(filename, ".rb")].join('/')).camelize
+        begin
+          namespaced_class.constantize
+        rescue LoadError # there is no spoon
+          return base_file_class
+        end
+        return namespaced_class
+      else
+        return base_file_class
+      end
+    end
   end
 
 end # class AppDiagram
